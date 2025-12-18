@@ -141,6 +141,38 @@ html, body {
   height: 55px;
 }
 
+/* Cancel Button */
+#cancel-btn {
+  position: absolute;
+  bottom: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 30px;
+  font-size: 16px;
+  font-weight: 600;
+  background: rgba(100, 100, 100, 0.9);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+  z-index: 100;
+}
+
+#cancel-btn:hover {
+  background: rgba(80, 80, 80, 0.95);
+  transform: translateX(-50%) scale(1.05);
+}
+
+#cancel-btn:active {
+  transform: translateX(-50%) scale(0.95);
+}
+
+#cancel-btn.hidden {
+  display: none;
+}
+
 /* Controls */
 #controls {
   position: absolute;
@@ -185,14 +217,22 @@ html, body {
   max-width: 90%;
 }
 
-#instructions p {
-  font-size: 20px;
+#instructions h3 {
+  font-size: 24px;
   color: #333;
   margin-bottom: 20px;
-  line-height: 1.5;
+}
+
+#instructions p {
+  font-size: 16px;
+  color: #555;
+  margin-bottom: 10px;
+  line-height: 1.4;
+  text-align: left;
 }
 
 #close-instructions {
+  margin-top: 15px;
   padding: 12px 30px;
   font-size: 16px;
   font-weight: 600;
@@ -252,6 +292,12 @@ html, body {
     font-size: 10px;
   }
 
+  #cancel-btn {
+    bottom: 95px;
+    padding: 10px 24px;
+    font-size: 14px;
+  }
+
   #reset-btn {
     padding: 12px 18px;
     font-size: 14px;
@@ -261,7 +307,11 @@ html, body {
     padding: 25px 30px;
   }
 
+  #instructions h3 {
+    font-size: 20px;
+  }
+
   #instructions p {
-    font-size: 16px;
+    font-size: 14px;
   }
 }

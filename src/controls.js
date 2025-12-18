@@ -14,17 +14,26 @@ export class GameControls {
     this.touches = new Map();
     this.lastTouchDistance = 0;
     this.isDragging = false;
+    this.dragStartPos = { x: 0, y: 0 };
     this.lastMousePos = { x: 0, y: 0 };
 
     // Raycaster for picking
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
+    this.currentMousePosition = new THREE.Vector2();
 
     // Callbacks
     this.onPlaceBlock = null;
 
     // Ground plane for raycasting
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    // Block meshes for raycasting (managed by game)
+    this.blockMeshes = [];
+
+    // Grid snapping
+    this.gridSize = 5;
+    this.snapToGrid = true;
 
     this.setupEventListeners();
     this.updateCameraPosition();
@@ -52,27 +61,33 @@ export class GameControls {
     this.camera.lookAt(this.target);
   }
 
+  // Update block meshes array for raycasting
+  setBlockMeshes(meshes) {
+    this.blockMeshes = meshes;
+  }
+
   // Mouse handlers
   onMouseDown(event) {
-    if (event.button === 0) {
-      // Left click - place block or start orbit
-      const rect = this.domElement.getBoundingClientRect();
-      this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    if (event.target !== this.domElement) return;
 
-      // Check if clicking on UI
-      if (event.target !== this.domElement) return;
+    const rect = this.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.currentMousePosition.copy(this.mouse);
 
+    if (event.button === 0 || event.button === 2) {
       this.isDragging = true;
-      this.lastMousePos = { x: event.clientX, y: event.clientY };
-    } else if (event.button === 2) {
-      // Right click - orbit
-      this.isDragging = true;
+      this.dragStartPos = { x: event.clientX, y: event.clientY };
       this.lastMousePos = { x: event.clientX, y: event.clientY };
     }
   }
 
   onMouseMove(event) {
+    const rect = this.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.currentMousePosition.copy(this.mouse);
+
     if (!this.isDragging) return;
 
     const deltaX = event.clientX - this.lastMousePos.x;
@@ -88,8 +103,8 @@ export class GameControls {
 
   onMouseUp(event) {
     if (event.button === 0 && this.isDragging) {
-      const dx = Math.abs(event.clientX - this.lastMousePos.x);
-      const dy = Math.abs(event.clientY - this.lastMousePos.y);
+      const dx = Math.abs(event.clientX - this.dragStartPos.x);
+      const dy = Math.abs(event.clientY - this.dragStartPos.y);
 
       // If minimal movement, treat as click for placing
       if (dx < 5 && dy < 5 && this.onPlaceBlock) {
@@ -97,9 +112,9 @@ export class GameControls {
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-        const position = this.getGroundPosition();
-        if (position) {
-          this.onPlaceBlock(position);
+        const placementInfo = this.getPlacementPosition();
+        if (placementInfo) {
+          this.onPlaceBlock(placementInfo);
         }
       }
     }
@@ -125,6 +140,15 @@ export class GameControls {
       });
     }
 
+    // Update mouse position for ghost block
+    if (event.touches.length === 1) {
+      const touch = event.touches[0];
+      const rect = this.domElement.getBoundingClientRect();
+      this.mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+      this.mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+      this.currentMousePosition.copy(this.mouse);
+    }
+
     if (this.touches.size === 2) {
       const touchArray = Array.from(this.touches.values());
       this.lastTouchDistance = this.getTouchDistance(touchArray[0], touchArray[1]);
@@ -142,6 +166,15 @@ export class GameControls {
           y: touch.clientY
         });
       }
+    }
+
+    // Update mouse position for ghost block
+    if (event.touches.length === 1) {
+      const touch = event.touches[0];
+      const rect = this.domElement.getBoundingClientRect();
+      this.mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+      this.mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+      this.currentMousePosition.copy(this.mouse);
     }
 
     if (this.touches.size === 1) {
@@ -188,9 +221,9 @@ export class GameControls {
           this.mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
           this.mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
 
-          const position = this.getGroundPosition();
-          if (position) {
-            this.onPlaceBlock(position);
+          const placementInfo = this.getPlacementPosition();
+          if (placementInfo) {
+            this.onPlaceBlock(placementInfo);
           }
         }
 
@@ -205,10 +238,50 @@ export class GameControls {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  // Get position on ground plane from current mouse/touch position
-  getGroundPosition() {
+  // Snap position to grid
+  snapPositionToGrid(position) {
+    if (!this.snapToGrid) return position;
+
+    return new THREE.Vector3(
+      Math.round(position.x / this.gridSize) * this.gridSize,
+      position.y,
+      Math.round(position.z / this.gridSize) * this.gridSize
+    );
+  }
+
+  // Get placement position - checks block tops first, then ground
+  getPlacementPosition() {
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
+    // First, check for intersections with existing blocks
+    if (this.blockMeshes.length > 0) {
+      const intersects = this.raycaster.intersectObjects(this.blockMeshes, false);
+
+      for (const intersect of intersects) {
+        // Check if we're hitting the top face of the block
+        if (intersect.face && intersect.face.normal) {
+          const worldNormal = intersect.face.normal.clone();
+          worldNormal.transformDirection(intersect.object.matrixWorld);
+
+          // If normal points mostly upward (top face)
+          if (worldNormal.y > 0.5) {
+            const point = intersect.point.clone();
+            // Snap to grid
+            const snapped = this.snapPositionToGrid(point);
+            snapped.y = point.y; // Keep the exact Y from intersection
+
+            return {
+              position: snapped,
+              surfaceY: point.y,
+              onBlock: true,
+              targetBlock: intersect.object
+            };
+          }
+        }
+      }
+    }
+
+    // Fall back to ground plane
     const intersection = new THREE.Vector3();
     const ray = this.raycaster.ray;
 
@@ -216,36 +289,76 @@ export class GameControls {
       // Clamp to reasonable build area
       intersection.x = Math.max(-80, Math.min(80, intersection.x));
       intersection.z = Math.max(-80, Math.min(80, intersection.z));
-      return intersection;
+
+      const snapped = this.snapPositionToGrid(intersection);
+      snapped.y = 0;
+
+      return {
+        position: snapped,
+        surfaceY: 0,
+        onBlock: false,
+        targetBlock: null
+      };
     }
 
     return null;
   }
 
-  // Get position at a specific height
-  getPositionAtHeight(height) {
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
-    this.raycaster.setFromCamera(this.mouse, this.camera);
+  // Get ghost position for preview (uses current mouse position)
+  getGhostPlacementPosition() {
+    this.raycaster.setFromCamera(this.currentMousePosition, this.camera);
 
+    // First, check for intersections with existing blocks
+    if (this.blockMeshes.length > 0) {
+      const intersects = this.raycaster.intersectObjects(this.blockMeshes, false);
+
+      for (const intersect of intersects) {
+        if (intersect.face && intersect.face.normal) {
+          const worldNormal = intersect.face.normal.clone();
+          worldNormal.transformDirection(intersect.object.matrixWorld);
+
+          // If normal points mostly upward (top face)
+          if (worldNormal.y > 0.5) {
+            const point = intersect.point.clone();
+            const snapped = this.snapPositionToGrid(point);
+            snapped.y = point.y;
+
+            return {
+              position: snapped,
+              surfaceY: point.y,
+              onBlock: true,
+              targetBlock: intersect.object
+            };
+          }
+        }
+      }
+    }
+
+    // Fall back to ground plane
     const intersection = new THREE.Vector3();
-    if (this.raycaster.ray.intersectPlane(plane, intersection)) {
+    const ray = this.raycaster.ray;
+
+    if (ray.intersectPlane(this.groundPlane, intersection)) {
       intersection.x = Math.max(-80, Math.min(80, intersection.x));
       intersection.z = Math.max(-80, Math.min(80, intersection.z));
-      return intersection;
+
+      const snapped = this.snapPositionToGrid(intersection);
+      snapped.y = 0;
+
+      return {
+        position: snapped,
+        surfaceY: 0,
+        onBlock: false,
+        targetBlock: null
+      };
     }
 
     return null;
   }
 
-  // Update mouse position (for ghost block)
-  updateMousePosition(event) {
-    const rect = this.domElement.getBoundingClientRect();
-    if (event.touches && event.touches.length > 0) {
-      this.mouse.x = ((event.touches[0].clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((event.touches[0].clientY - rect.top) / rect.height) * 2 + 1;
-    } else {
-      this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    }
+  // Legacy method for compatibility
+  getGroundPosition() {
+    const info = this.getPlacementPosition();
+    return info ? info.position : null;
   }
 }

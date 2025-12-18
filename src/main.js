@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PhysicsWorld } from './physics.js';
-import { createBlock, createGhostBlock, getBlockHeightOffset, BLOCK_TYPES } from './blocks.js';
+import { createBlock, createGhostBlock, setGhostValidity, getBlockHeightOffset, getBlockHalfExtents, BLOCK_TYPES } from './blocks.js';
 import { GameControls } from './controls.js';
 
 class Game {
@@ -16,10 +16,13 @@ class Game {
     this.ghostBlock = null;
     this.blocks = [];
     this.isPlacingMode = false;
+    this.currentPlacementValid = false;
+    this.lastPlacementInfo = null;
 
     // UI elements
     this.heightValueEl = null;
     this.instructionsEl = null;
+    this.cancelBtn = null;
 
     // Performance
     this.clock = new THREE.Clock();
@@ -112,9 +115,9 @@ class Game {
     this.controls = new GameControls(this.camera, canvas, this.scene);
 
     // Set up block placement callback
-    this.controls.onPlaceBlock = (position) => {
-      if (this.selectedBlockType) {
-        this.placeBlock(position);
+    this.controls.onPlaceBlock = (placementInfo) => {
+      if (this.selectedBlockType && this.currentPlacementValid) {
+        this.confirmPlacement(placementInfo);
       }
     };
   }
@@ -122,27 +125,47 @@ class Game {
   setupUI() {
     this.heightValueEl = document.getElementById('height-value');
     this.instructionsEl = document.getElementById('instructions');
+    this.cancelBtn = document.getElementById('cancel-btn');
 
     // Block palette buttons
     const blockButtons = document.querySelectorAll('.block-btn');
     blockButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.selectBlockType(btn.dataset.block);
       });
 
       btn.addEventListener('touchend', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         this.selectBlockType(btn.dataset.block);
       });
     });
 
     // Reset button
     const resetBtn = document.getElementById('reset-btn');
-    resetBtn.addEventListener('click', () => this.reset());
-    resetBtn.addEventListener('touchend', (e) => {
-      e.preventDefault();
+    resetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.reset();
     });
+    resetBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.reset();
+    });
+
+    // Cancel button
+    if (this.cancelBtn) {
+      this.cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.cancelPlacement();
+      });
+      this.cancelBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.cancelPlacement();
+      });
+    }
 
     // Close instructions
     const closeInstructionsBtn = document.getElementById('close-instructions');
@@ -171,7 +194,7 @@ class Game {
     this.scene.add(ground);
 
     // Grid helper for visual reference
-    const gridHelper = new THREE.GridHelper(200, 20, 0x666666, 0xaaaaaa);
+    const gridHelper = new THREE.GridHelper(200, 40, 0x666666, 0xaaaaaa);
     gridHelper.position.y = 0.1;
     this.scene.add(gridHelper);
   }
@@ -185,13 +208,33 @@ class Game {
 
     // Toggle selection
     if (this.selectedBlockType === type) {
-      this.selectedBlockType = null;
-      this.removeGhostBlock();
-      document.getElementById('game-container').classList.remove('placing-mode');
+      this.cancelPlacement();
     } else {
       this.selectedBlockType = type;
       this.createGhostBlockForType(type);
       document.getElementById('game-container').classList.add('placing-mode');
+
+      // Show cancel button
+      if (this.cancelBtn) {
+        this.cancelBtn.classList.remove('hidden');
+      }
+    }
+  }
+
+  cancelPlacement() {
+    this.selectedBlockType = null;
+    this.removeGhostBlock();
+    this.currentPlacementValid = false;
+    this.lastPlacementInfo = null;
+
+    // Update UI
+    const blockButtons = document.querySelectorAll('.block-btn');
+    blockButtons.forEach(btn => btn.classList.remove('selected'));
+    document.getElementById('game-container').classList.remove('placing-mode');
+
+    // Hide cancel button
+    if (this.cancelBtn) {
+      this.cancelBtn.classList.add('hidden');
     }
   }
 
@@ -211,31 +254,41 @@ class Game {
     }
   }
 
-  placeBlock(position) {
-    if (!this.selectedBlockType) return;
+  // Confirm placement - place block at ghost position with physics enabled
+  confirmPlacement(placementInfo) {
+    if (!this.selectedBlockType || !this.currentPlacementValid) return;
 
-    const heightOffset = getBlockHeightOffset(this.selectedBlockType);
-    const dropHeight = this.physics.getMaxHeight() + 80; // Drop from above current stack
+    const halfExtents = getBlockHalfExtents(this.selectedBlockType);
+    if (!halfExtents) return;
 
-    const spawnPosition = {
+    // Calculate final position
+    const position = placementInfo.position.clone();
+    position.y = placementInfo.surfaceY + halfExtents.y;
+
+    // Create the actual block with physics
+    const block = createBlock(this.selectedBlockType, {
       x: position.x,
-      y: dropHeight + heightOffset,
+      y: position.y,
       z: position.z
-    };
+    });
 
-    const block = createBlock(this.selectedBlockType, spawnPosition);
     if (block) {
       this.scene.add(block.mesh);
       this.physics.addBody(block.body);
       this.blocks.push(block);
 
-      // Add slight random rotation for more interesting stacking
-      block.body.angularVelocity.set(
-        (Math.random() - 0.5) * 0.5,
-        (Math.random() - 0.5) * 0.5,
-        (Math.random() - 0.5) * 0.5
-      );
+      // Update the controls with new block meshes for raycasting
+      this.updateBlockMeshesForRaycast();
+
+      // Deselect and hide ghost
+      this.cancelPlacement();
     }
+  }
+
+  // Update block meshes array for raycasting
+  updateBlockMeshesForRaycast() {
+    const meshes = this.blocks.map(b => b.mesh);
+    this.controls.setBlockMeshes(meshes);
   }
 
   reset() {
@@ -249,11 +302,10 @@ class Game {
     this.physics.reset();
 
     // Reset UI
-    this.selectedBlockType = null;
-    this.removeGhostBlock();
-    const blockButtons = document.querySelectorAll('.block-btn');
-    blockButtons.forEach(btn => btn.classList.remove('selected'));
-    document.getElementById('game-container').classList.remove('placing-mode');
+    this.cancelPlacement();
+
+    // Update block meshes for raycasting
+    this.updateBlockMeshesForRaycast();
 
     // Update height display
     this.updateHeightMeter();
@@ -269,14 +321,55 @@ class Game {
   updateGhostBlock() {
     if (!this.ghostBlock || !this.selectedBlockType) return;
 
-    const position = this.controls.getGroundPosition();
-    if (position) {
-      const heightOffset = getBlockHeightOffset(this.selectedBlockType);
-      this.ghostBlock.position.set(position.x, heightOffset, position.z);
+    // Get placement position from controls
+    const placementInfo = this.controls.getGhostPlacementPosition();
+
+    if (placementInfo) {
+      const halfExtents = getBlockHalfExtents(this.selectedBlockType);
+      if (!halfExtents) {
+        this.ghostBlock.visible = false;
+        return;
+      }
+
+      // Calculate ghost Y position (on top of surface)
+      const ghostY = placementInfo.surfaceY + halfExtents.y;
+      const position = placementInfo.position.clone();
+      position.y = ghostY;
+
+      // Smooth interpolation for ghost position
+      this.ghostBlock.position.lerp(position, 0.3);
       this.ghostBlock.visible = true;
+
+      // Check validity
+      const isValid = this.checkPlacementValidity(position, halfExtents);
+      this.currentPlacementValid = isValid;
+      this.lastPlacementInfo = placementInfo;
+
+      // Update visual feedback
+      setGhostValidity(this.ghostBlock, isValid);
     } else {
       this.ghostBlock.visible = false;
+      this.currentPlacementValid = false;
     }
+  }
+
+  // Check if placement is valid (no collision and has support)
+  checkPlacementValidity(position, halfExtents) {
+    // Check for collisions with existing blocks
+    const noCollision = this.physics.isValidPlacement(
+      { x: position.x, y: position.y, z: position.z },
+      halfExtents
+    );
+
+    if (!noCollision) return false;
+
+    // Check for support (ground or block beneath)
+    const hasSupport = this.physics.hasSupport(
+      { x: position.x, y: position.y, z: position.z },
+      halfExtents
+    );
+
+    return hasSupport;
   }
 
   onResize() {
