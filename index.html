@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Skyscraper Stacker</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Height Meter -->
+    <div id="height-meter">
+      <span class="emoji">📏</span>
+      <span class="label">Height</span>
+      <span id="height-value">0</span>
+      <span class="unit">m</span>
+    </div>
+
+    <!-- Block Palette -->
+    <div id="block-palette">
+      <button class="block-btn" data-block="foundation" title="Foundation Block">
+        <div class="block-preview foundation"></div>
+        <span>Foundation</span>
+      </button>
+      <button class="block-btn" data-block="office" title="Office Tower">
+        <div class="block-preview office"></div>
+        <span>Office</span>
+      </button>
+      <button class="block-btn" data-block="spire" title="Spire">
+        <div class="block-preview spire"></div>
+        <span>Spire</span>
+      </button>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+      <button id="reset-btn" title="Reset">🔄 Reset</button>
+    </div>
+
+    <!-- Instructions -->
+    <div id="instructions">
+      <p>Tap a block, then tap the scene to place it!</p>
+      <button id="close-instructions">Got it!</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
