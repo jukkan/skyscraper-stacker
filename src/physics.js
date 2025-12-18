@@ -126,4 +126,103 @@ export class PhysicsWorld {
     }
     return false;
   }
+
+  // Check if placement is valid (no collision with existing blocks)
+  isValidPlacement(position, halfExtents, tolerance = 0.5) {
+    // Check against all existing blocks
+    for (const body of this.bodies) {
+      if (body.userData && body.userData.blockType) {
+        const shape = body.shapes[0];
+        if (shape instanceof CANNON.Box) {
+          const bPos = body.position;
+          const bHalf = shape.halfExtents;
+
+          // AABB overlap check with small tolerance
+          const overlapX = Math.abs(position.x - bPos.x) < (halfExtents.x + bHalf.x - tolerance);
+          const overlapY = Math.abs(position.y - bPos.y) < (halfExtents.y + bHalf.y - tolerance);
+          const overlapZ = Math.abs(position.z - bPos.z) < (halfExtents.z + bHalf.z - tolerance);
+
+          if (overlapX && overlapY && overlapZ) {
+            return false; // Collision detected
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  // Check if a block at position would have support (ground or another block beneath)
+  hasSupport(position, halfExtents) {
+    const bottomY = position.y - halfExtents.y;
+
+    // Check if on ground
+    if (bottomY <= 0.5) {
+      return true;
+    }
+
+    // Check if any block is beneath to provide support
+    for (const body of this.bodies) {
+      if (body.userData && body.userData.blockType) {
+        const shape = body.shapes[0];
+        if (shape instanceof CANNON.Box) {
+          const bPos = body.position;
+          const bHalf = shape.halfExtents;
+          const bTopY = bPos.y + bHalf.y;
+
+          // Check if this block's top is near our block's bottom
+          if (Math.abs(bTopY - bottomY) < 1.0) {
+            // Check horizontal overlap (at least 20% overlap in both X and Z)
+            const overlapX = Math.max(0,
+              Math.min(position.x + halfExtents.x, bPos.x + bHalf.x) -
+              Math.max(position.x - halfExtents.x, bPos.x - bHalf.x)
+            );
+            const overlapZ = Math.max(0,
+              Math.min(position.z + halfExtents.z, bPos.z + bHalf.z) -
+              Math.max(position.z - halfExtents.z, bPos.z - bHalf.z)
+            );
+
+            const minOverlapX = halfExtents.x * 0.4; // 20% of block width
+            const minOverlapZ = halfExtents.z * 0.4;
+
+            if (overlapX >= minOverlapX && overlapZ >= minOverlapZ) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Get the top Y position of a block at given XZ position
+  getTopYAt(x, z, blockHalfExtents) {
+    let maxTopY = 0;
+
+    for (const body of this.bodies) {
+      if (body.userData && body.userData.blockType) {
+        const shape = body.shapes[0];
+        if (shape instanceof CANNON.Box) {
+          const bPos = body.position;
+          const bHalf = shape.halfExtents;
+
+          // Check if XZ overlaps
+          const overlapX = Math.abs(x - bPos.x) < (blockHalfExtents.x + bHalf.x);
+          const overlapZ = Math.abs(z - bPos.z) < (blockHalfExtents.z + bHalf.z);
+
+          if (overlapX && overlapZ) {
+            const topY = bPos.y + bHalf.y;
+            maxTopY = Math.max(maxTopY, topY);
+          }
+        }
+      }
+    }
+
+    return maxTopY;
+  }
+
+  // Get all bodies for iteration
+  getBodies() {
+    return this.bodies;
+  }
 }

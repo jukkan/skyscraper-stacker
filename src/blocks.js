@@ -26,6 +26,10 @@ export const BLOCK_TYPES = {
   }
 };
 
+// Colors for validity indication
+const VALID_COLOR = 0x00FF00;   // Green
+const INVALID_COLOR = 0xFF0000; // Red
+
 // Create toon material for cartoon look
 function createToonMaterial(color) {
   // Create gradient map for toon shading
@@ -119,28 +123,99 @@ export function createBlock(blockType, position = { x: 0, y: 50, z: 0 }) {
   return { mesh, body };
 }
 
-// Create ghost preview block (semi-transparent)
+// Create ghost preview block with validity outline
 export function createGhostBlock(blockType) {
   const config = BLOCK_TYPES[blockType];
   if (!config) return null;
 
+  // Create a group to hold the ghost mesh and outline
+  const group = new THREE.Group();
+  group.userData.blockType = blockType;
+  group.userData.isGhost = true;
+
+  // Semi-transparent inner mesh
   const geometry = new THREE.BoxGeometry(config.size.x, config.size.y, config.size.z);
   const material = new THREE.MeshBasicMaterial({
     color: config.color,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.4,
     depthWrite: false
   });
-
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.userData.blockType = blockType;
-  mesh.userData.isGhost = true;
+  group.add(mesh);
 
-  return mesh;
+  // Validity outline (thicker edges)
+  const outlineGeometry = new THREE.BoxGeometry(
+    config.size.x + 0.5,
+    config.size.y + 0.5,
+    config.size.z + 0.5
+  );
+  const outlineMaterial = new THREE.MeshBasicMaterial({
+    color: VALID_COLOR,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.BackSide
+  });
+  const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+  outline.name = 'validityOutline';
+  group.add(outline);
+
+  // Edge lines for better visibility
+  const edgeGeometry = new THREE.EdgesGeometry(geometry);
+  const edgeMaterial = new THREE.LineBasicMaterial({
+    color: VALID_COLOR,
+    linewidth: 3,
+    transparent: true,
+    opacity: 0.8
+  });
+  const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+  edges.name = 'validityEdges';
+  group.add(edges);
+
+  // Store references for updating validity
+  group.userData.outlineMesh = outline;
+  group.userData.edgeLines = edges;
+  group.userData.innerMesh = mesh;
+
+  return group;
+}
+
+// Update ghost block validity visual
+export function setGhostValidity(ghostBlock, isValid) {
+  if (!ghostBlock || !ghostBlock.userData.isGhost) return;
+
+  const color = isValid ? VALID_COLOR : INVALID_COLOR;
+
+  const outline = ghostBlock.userData.outlineMesh;
+  const edges = ghostBlock.userData.edgeLines;
+
+  if (outline) {
+    outline.material.color.setHex(color);
+  }
+  if (edges) {
+    edges.material.color.setHex(color);
+  }
 }
 
 // Get the height offset for placing a block (half its height)
 export function getBlockHeightOffset(blockType) {
   const config = BLOCK_TYPES[blockType];
   return config ? config.size.y / 2 : 0;
+}
+
+// Get block size for collision checking
+export function getBlockSize(blockType) {
+  const config = BLOCK_TYPES[blockType];
+  return config ? { ...config.size } : null;
+}
+
+// Get block half extents for physics
+export function getBlockHalfExtents(blockType) {
+  const config = BLOCK_TYPES[blockType];
+  if (!config) return null;
+  return {
+    x: config.size.x / 2,
+    y: config.size.y / 2,
+    z: config.size.z / 2
+  };
 }
